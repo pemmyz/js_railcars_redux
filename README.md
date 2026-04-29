@@ -5,6 +5,8 @@
 A fast-paced **3D lane-switching survival game** built with **Three.js**
 🎮✨
 
+## Play it now: https://pemmyz.github.io/js_railcars_redux/
+
 ------------------------------------------------------------------------
 
 ## 🕹️ Gameplay
