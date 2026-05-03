@@ -212,11 +212,9 @@ document.addEventListener('DOMContentLoaded', () => {
         let targetLane = currentLane;
         let moveDirection = null;
 
-        // ADDED: arrowleft and 'a' keys for moving left (up a lane index)
         if (key === 'arrowup' || key === 'w' || key === 'arrowleft' || key === 'a') {
             targetLane = currentLane - 1;
             moveDirection = 'up';
-        // ADDED: arrowright and 'd' keys for moving right (down a lane index)
         } else if (key === 'arrowdown' || key === 's' || key === 'arrowright' || key === 'd') {
             targetLane = currentLane + 1;
             moveDirection = 'down';
@@ -447,4 +445,76 @@ document.addEventListener('DOMContentLoaded', () => {
         camera.updateProjectionMatrix();
         renderer.setSize(gameContainer.offsetWidth, gameContainer.offsetHeight);
     });
+
+    // ==========================================
+    // 9. FULLSCREEN SCALING & MOBILE CONTROLS
+    // ==========================================
+    const mobileToggleBtn = document.getElementById('mobile-btn');
+    const mobileControls = document.getElementById('mobile-controls');
+    const mobileUpBtn = document.getElementById('mobile-up');
+    const mobileDownBtn = document.getElementById('mobile-down');
+    
+    function scaleGame() {
+        const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement;
+        
+        if (isFullscreen) {
+            const baseWidth = 980;
+            const baseHeight = 400; // Original container dimensions
+            
+            // Calculate scale factor to fit the viewport perfectly
+            const scale = Math.min(
+                window.innerWidth / baseWidth,
+                window.innerHeight / baseHeight
+            );
+            
+            gameContainer.style.transform = `scale(${scale})`;
+            document.body.classList.add('mobile-mode'); // Hide borders, lock body
+        } else {
+            gameContainer.style.transform = 'none'; 
+            document.body.classList.remove('mobile-mode');
+        }
+    }
+
+    function goFull() {
+        const el = document.documentElement;
+        if (el.requestFullscreen) el.requestFullscreen();
+        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    }
+
+    // Dynamic Resizing Listeners
+    window.addEventListener("resize", scaleGame);
+    window.addEventListener("fullscreenchange", scaleGame);
+    window.addEventListener("webkitfullscreenchange", scaleGame);
+    mobileToggleBtn.addEventListener('click', goFull);
+
+    // Initial load check
+    scaleGame();
+
+    function setupMobileControls() {
+        if (!mobileControls) return;
+
+        // Dispatch a fake KeyboardEvent so your existing logic handles it effortlessly
+        const triggerKeydown = (keyString) => {
+            const event = new KeyboardEvent('keydown', { key: keyString });
+            document.dispatchEvent(event);
+        };
+
+        const addControlListener = (element, keyString) => {
+            const pressKey = (e) => {
+                if(e.cancelable) e.preventDefault(); // Stop zooming/scrolling on mobile
+                triggerKeydown(keyString);
+            };
+
+            // Touch & Mouse bindings
+            element.addEventListener('touchstart', pressKey, { passive: false });
+            element.addEventListener('mousedown', pressKey);
+        };
+
+        // Map mobile buttons to existing keyboard logic strings
+        addControlListener(mobileUpBtn, 'ArrowUp');     // Moves left/up a lane
+        addControlListener(mobileDownBtn, 'ArrowDown'); // Moves right/down a lane
+    }
+
+    setupMobileControls();
+
 });

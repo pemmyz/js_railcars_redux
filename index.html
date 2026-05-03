@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- REQUIRED METADATA FOR MOBILE SCALING -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Railcar Rush 3D</title>
     <link rel="stylesheet" href="style.css">
     <!-- Load Three.js -->
@@ -10,27 +11,42 @@
 </head>
 <body>
 
+    <!-- TOGGLE BUTTON -->
+    <button id="mobile-btn">📱 Fullscreen</button>
+
+    <!-- GAME CONTAINER (Acts as the fixed-resolution screen to be scaled) -->
     <div id="game-container">
         <!-- Three.js Canvas will be injected here -->
-    </div>
-
-    <div id="ui-container">
-        <div id="score-board">🎯 Score: <span id="score">0</span></div>
-        <div id="start-screen" class="screen">
-            <h1>Railcar Rush 3D</h1>
-            <p>Use <strong>ArrowUp</strong> & <strong>ArrowDown</strong> or <strong>W</strong> & <strong>S</strong> keys.</p>
-            <p>You can only switch lanes when you glow <strong>green</strong> on a diagonal connection!</p>
-            <p>Select Difficulty:</p>
-            <div id="difficulty-selection">
-                <button class="difficulty-btn" data-difficulty="easy">Easy</button>
-                <button class="difficulty-btn" data-difficulty="medium">Medium</button>
-                <button class="difficulty-btn" data-difficulty="hard">Hard</button>
+        
+        <!-- Nested UI inside the scaling container -->
+        <div id="ui-container">
+            <div id="score-board">🎯 Score: <span id="score">0</span></div>
+            <div id="start-screen" class="screen">
+                <h1>Railcar Rush 3D</h1>
+                <p>Use <strong>ArrowUp</strong> & <strong>ArrowDown</strong> or <strong>W</strong> & <strong>S</strong> keys.</p>
+                <p>You can only switch lanes when you glow <strong>green</strong> on a diagonal connection!</p>
+                <p>Select Difficulty:</p>
+                <div id="difficulty-selection">
+                    <button class="difficulty-btn" data-difficulty="easy">Easy</button>
+                    <button class="difficulty-btn" data-difficulty="medium">Medium</button>
+                    <button class="difficulty-btn" data-difficulty="hard">Hard</button>
+                </div>
+            </div>
+            <div id="game-over-screen" class="screen hidden">
+                <h1>💥 CRASH! 💥</h1>
+                <p>Your final score: <span id="final-score">0</span></p>
+                <button id="restart-button">Play Again</button>
             </div>
         </div>
-        <div id="game-over-screen" class="screen hidden">
-            <h1>💥 CRASH! 💥</h1>
-            <p>Your final score: <span id="final-score">0</span></p>
-            <button id="restart-button">Play Again</button>
+    </div>
+
+    <!-- MOBILE TOUCH CONTROLS OVERLAY -->
+    <div id="mobile-controls">
+        <div id="mobile-action-left">
+            <button id="mobile-up" class="mobile-control-btn">▲</button>
+        </div>
+        <div id="mobile-action-right">
+            <button id="mobile-down" class="mobile-control-btn">▼</button>
         </div>
     </div>
 
