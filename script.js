@@ -73,6 +73,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let gameSpeed = 0;
     let score = 0;
     let isGameOver = true;
+    let activeSwitch = null; // Tracks the physical board the player is riding
     
     let distanceSinceLastSpawn = 0;
     let nextSpawnDistance = 0;
@@ -110,7 +111,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Initialize Player
     let playerMesh = createTrainMesh(playerMat);
-    playerMesh.position.x = PLAYER_X;
+    
+    // Shift children forward so the group's pivot point becomes the exact rear of the train
+    playerMesh.children.forEach(child => {
+        child.position.x += 30; 
+    });
+    // Set group position back by 30 so the collision & visual center remains exactly at PLAYER_X
+    playerMesh.position.x = PLAYER_X - 30; 
+    
     scene.add(playerMesh);
 
     // ==========================================
@@ -171,6 +179,8 @@ document.addEventListener('DOMContentLoaded', () => {
         currentLane = Math.floor(numLanes / 2);
         score = 0;
         gameSpeed = currentDifficultySettings.initialSpeed;
+        activeSwitch = null;
+        playerMesh.rotation.y = 0;
         
         // Reset player color/position
         playerMat.emissive.setHex(0x000000);
@@ -207,7 +217,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // 5. INPUT HANDLING
     // ==========================================
     document.addEventListener('keydown', (e) => {
-        if (isGameOver) return;
+        if (isGameOver || activeSwitch) return; // Ignore input while already sliding on a connection
+        
         const key = e.key.toLowerCase();
         let targetLane = currentLane;
         let moveDirection = null;
@@ -225,13 +236,13 @@ document.addEventListener('DOMContentLoaded', () => {
         // Prevent moving out of bounds
         if (targetLane < 0 || targetLane >= currentLanePositions.length) return;
 
-        // Check if player is currently overlapping a connection that goes the intended direction
+        // Verify if a switch is physically available
         for (const conn of connections) {
-            // Is player aligned? (Tolerance based on connection width)
-            if (Math.abs(PLAYER_X - conn.x) < CONNECTION_WIDTH_HORIZONTAL / 1.5 && conn.direction === moveDirection) {
-                // Does this connection link the current lane and target lane?
+            // Check if player's logical X is within bounds of the board (expanded slightly so you can queue it up)
+            if (Math.abs(PLAYER_X - conn.x) < CONNECTION_WIDTH_HORIZONTAL / 1.0 && conn.direction === moveDirection) {
                 if (conn.connects.includes(currentLane) && conn.connects.includes(targetLane)) {
-                    currentLane = targetLane;
+                    // Lock them into the switch state
+                    activeSwitch = conn;
                     break;
                 }
             }
@@ -346,20 +357,62 @@ document.addEventListener('DOMContentLoaded', () => {
         score += 0.1;
         updateScoreDisplay();
 
-        // 1. Smoothly interpolate player model to their current logical lane
-        const targetZ = currentLanePositions[currentLane];
-        playerMesh.position.z += (targetZ - playerMesh.position.z) * 0.2;
+        // --- 1. TRACK-HUGGING PLAYER MOVEMENT ---
+        const PIVOT_X = PLAYER_X - 30; // The rear wheels
+        const FRONT_X = PLAYER_X + 30; // The nose of the train
+        
+        let targetZ = currentLanePositions[currentLane];
+        let targetRotation = 0;
 
-        // 2. Move & Update Enemies
+        if (activeSwitch) {
+            const topLaneZ = currentLanePositions[activeSwitch.connects[0]];
+            const bottomLaneZ = currentLanePositions[activeSwitch.connects[1]];
+            
+            let z_start = activeSwitch.direction === 'down' ? topLaneZ : bottomLaneZ;
+            let z_end = activeSwitch.direction === 'down' ? bottomLaneZ : topLaneZ;
+            
+            // Calculate how far along the connection board our train's front and back are
+            let pivotProgress = (PIVOT_X - activeSwitch.x) / CONNECTION_WIDTH_HORIZONTAL;
+            let frontProgress = (FRONT_X - activeSwitch.x) / CONNECTION_WIDTH_HORIZONTAL;
+            
+            if (pivotProgress >= 0.5) {
+                // The rear of the train has fully exited the connection board. Switch is over.
+                currentLane = activeSwitch.direction === 'down' ? activeSwitch.connects[1] : activeSwitch.connects[0];
+                activeSwitch = null;
+                targetZ = currentLanePositions[currentLane];
+            } else {
+                // Force the rear pivot of the train to lock perfectly to the slope of the track 
+                let clampedPivotProgress = Math.max(-0.5, Math.min(0.5, pivotProgress));
+                targetZ = z_start + (clampedPivotProgress + 0.5) * (z_end - z_start);
+                
+                // If the nose of the train hits the board, point the nose down the board
+                if (frontProgress > -0.5 && pivotProgress < 0.5) {
+                    targetRotation = activeSwitch.mesh.rotation.y;
+                }
+            }
+        }
+
+        // Apply Position and Rotation with smooth physics
+        const dz = targetZ - playerMesh.position.z;
+        playerMesh.position.z += dz * 0.4; // High interpolation forces it onto the tracks tightly
+        
+        const dRot = targetRotation - playerMesh.rotation.y;
+        playerMesh.rotation.y += dRot * 0.2; // Allows a slightly bouncy visual swing of the nose
+
+
+        // --- 2. ENEMY COLLISION ---
         for (let i = enemies.length - 1; i >= 0; i--) {
             const e = enemies[i];
             e.x -= gameSpeed;
             e.mesh.position.x = e.x;
             
-            // Collision detection
-            if (e.lane === currentLane && Math.abs(PLAYER_X - e.x) < RAILCAR_LENGTH) {
-                endGame();
-                return;
+            // Replaced logic-based lane detection with TRUE 3D Proximity Detection 
+            // so it correctly kills you if you touch a train while mid-switch!
+            if (Math.abs(PLAYER_X - e.x) < RAILCAR_LENGTH - 10) {
+                if (Math.abs(playerMesh.position.z - e.mesh.position.z) < 25) {
+                    endGame();
+                    return;
+                }
             }
             
             // Cleanup off-screen
@@ -369,16 +422,19 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        // 3. Move Connections & Calculate Switchability
+
+        // --- 3. CONNECTIONS & GLOW LOGIC ---
         let canSwitch = false;
         for (let i = connections.length - 1; i >= 0; i--) {
             const c = connections[i];
             c.x -= gameSpeed;
             c.mesh.position.x = c.x;
 
-            // Is the player within the valid X bounds of the connection?
-            if (Math.abs(PLAYER_X - c.x) < CONNECTION_WIDTH_HORIZONTAL / 1.5) {
-                canSwitch = true;
+            // Check if player is near board AND it touches their current valid lane
+            if (Math.abs(PLAYER_X - c.x) < CONNECTION_WIDTH_HORIZONTAL / 1.0) {
+                if (c.connects.includes(currentLane)) {
+                    canSwitch = true;
+                }
             }
             
             if (c.x < -300) { 
@@ -387,39 +443,36 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
         
-        // Provide visual feedback (green glow) if a switch is legal
-        if (canSwitch) {
+        // Glow Green only if available and you haven't triggered it yet
+        if (canSwitch && !activeSwitch) {
             playerMat.emissive.setHex(0x00ff00);
             playerMat.emissiveIntensity = 0.5;
         } else {
             playerMat.emissive.setHex(0x000000);
         }
 
-        // 4. Animate Ground/Tracks (Move sleepers left, loop them right)
+        // --- 4. ANIMATE GROUND ---
         trackSleepers.forEach(sleeper => {
             sleeper.position.x -= gameSpeed;
             if (sleeper.position.x < -200) sleeper.position.x += 2400; 
         });
 
-        // 5. Spawning System
+        // --- 5. SPAWN SYSTEM ---
         distanceSinceLastSpawn += gameSpeed;
         if (distanceSinceLastSpawn >= nextSpawnDistance) {
             spawnChallenge();
             distanceSinceLastSpawn = 0;
             
-            // Calculate next distance with variance
             const base = currentDifficultySettings.spawnBase;
             const variance = currentDifficultySettings.spawnVar;
             nextSpawnDistance = base + Math.random() * variance;
         }
 
-        // Gradually increase speed
         gameSpeed += currentDifficultySettings.speedIncrease;
         
-        // Smooth camera follow logic (wiggles slightly as you switch lanes)
+        // Camera Follow Logic
         camera.position.z += (currentLanePositions[currentLane] - camera.position.z) * 0.05;
 
-        // Render Frame
         renderer.render(scene, camera);
         animationFrameId = requestAnimationFrame(gameLoop);
     }
@@ -440,7 +493,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     window.addEventListener('resize', () => {
-        // Keeps the 3D aspect ratio proper if the game container CSS ever changes dynamically
         camera.aspect = gameContainer.offsetWidth / gameContainer.offsetHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(gameContainer.offsetWidth, gameContainer.offsetHeight);
@@ -459,16 +511,15 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (isFullscreen) {
             const baseWidth = 980;
-            const baseHeight = 400; // Original container dimensions
+            const baseHeight = 400; 
             
-            // Calculate scale factor to fit the viewport perfectly
             const scale = Math.min(
                 window.innerWidth / baseWidth,
                 window.innerHeight / baseHeight
             );
             
             gameContainer.style.transform = `scale(${scale})`;
-            document.body.classList.add('mobile-mode'); // Hide borders, lock body
+            document.body.classList.add('mobile-mode');
         } else {
             gameContainer.style.transform = 'none'; 
             document.body.classList.remove('mobile-mode');
@@ -481,19 +532,16 @@ document.addEventListener('DOMContentLoaded', () => {
         else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
     }
 
-    // Dynamic Resizing Listeners
     window.addEventListener("resize", scaleGame);
     window.addEventListener("fullscreenchange", scaleGame);
     window.addEventListener("webkitfullscreenchange", scaleGame);
     mobileToggleBtn.addEventListener('click', goFull);
 
-    // Initial load check
     scaleGame();
 
     function setupMobileControls() {
         if (!mobileControls) return;
 
-        // Dispatch a fake KeyboardEvent so your existing logic handles it effortlessly
         const triggerKeydown = (keyString) => {
             const event = new KeyboardEvent('keydown', { key: keyString });
             document.dispatchEvent(event);
@@ -501,20 +549,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const addControlListener = (element, keyString) => {
             const pressKey = (e) => {
-                if(e.cancelable) e.preventDefault(); // Stop zooming/scrolling on mobile
+                if(e.cancelable) e.preventDefault();
                 triggerKeydown(keyString);
             };
 
-            // Touch & Mouse bindings
             element.addEventListener('touchstart', pressKey, { passive: false });
             element.addEventListener('mousedown', pressKey);
         };
 
-        // Map mobile buttons to existing keyboard logic strings
-        addControlListener(mobileUpBtn, 'ArrowUp');     // Moves left/up a lane
-        addControlListener(mobileDownBtn, 'ArrowDown'); // Moves right/down a lane
+        addControlListener(mobileUpBtn, 'ArrowUp');
+        addControlListener(mobileDownBtn, 'ArrowDown');
     }
 
     setupMobileControls();
-
 });
